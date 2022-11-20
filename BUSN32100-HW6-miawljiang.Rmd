@@ -1,0 +1,221 @@
+---
+title: "__BUSN 32100 HW6__"
+author: "Mia Jiang"
+date: "11/15/2022"
+output:
+  pdf_document: default
+urlcolor: blue
+---
+
+## 1. Setting WD and Loading Libraries
+```{r, message = FALSE, warning = FALSE}
+### Clear Global Environment
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.height = 4,
+  fig.width = 6
+)
+rm(list = ls())
+options(scipen = 0)
+# Setting the Working Directory
+setwd("~/Desktop/Fall Quarter/BUSN-32100/Week8/BUSN-32100-HW-6")
+# Load packages
+library(readr) # read csv
+library(dplyr) # data manipulation
+library(tidyverse) 
+library(caret) # print text
+library(reshape2) # melt data for correlation map plotting
+library(ggplot2) # plotting
+library(GGally) # pair plot
+library(plotly) # interactive plot
+```
+
+## 2. Import data
+```{r}
+# Load data
+kc_housing <- read_csv("kc_house_data.csv", show_col_types = FALSE)
+```
+
+## 3. Summary Statistics
+```{r}
+as.data.frame(summary(kc_housing)) %>%
+  select(-Var1) %>%
+  separate(Freq, into = c("attribute", "value"), sep = ":", extra = "merge") %>%
+  mutate(attribute = str_remove(attribute, "\\.")) %>%
+  pivot_wider(names_from = Var2,
+              values_from = value)
+```
+## 4. Information on All Columns
+```{r}
+# Column info
+glimpse(kc_housing)
+# Missing values
+summary(colSums(is.na(kc_housing)))
+```
+
+__*Answer*__  
+
+- There are 21513 observations with 21 variables in total. For all columns, no missing value has been found in this data set.
+
+## 5. Rename a column
+```{r}
+# Rename columns
+kc_housing <- kc_housing %>%
+  rename("sold_price" = "price", "constr_quality" = "grade")
+# Check column names
+names(kc_housing)
+```
+__*Note*__  
+
+- Renaming the *price* column to make it more clear that the price refers to *sold price*. 
+
+- Renaming the *grade* column to *constr_quality* so that it's more clear this column records __construction quality grade__ of houses.
+
+## 6. Count number of houses by bedroom
+```{r}
+count(kc_housing, bedrooms) %>%
+  arrange(desc(n))
+```
+
+__*Answer*__  
+
+- 3-bedroom is the most popular type, as nearly half of the houses in this dataset have 3 bedrooms, followed by 4-bedroom and 2-bedroom types. In general, 3 or 4 bedrooms are the most common ones in Seattle, and it's relatively rare that a house has 5+ or less than 2 bedrooms.
+
+## 7. Bar Chart of the Number of Bedrooms in Seattle Homes
+```{r}
+# Set color and theme
+seattle <- "#00839A"
+theme <- theme_bw() +
+  theme(
+    plot.title = element_text(size = 11, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 10, face = "italic", hjust = 0.5),
+    axis.title = element_text(size = 10, face = "bold")
+  )
+# Plot
+ggplot(kc_housing) +
+  geom_bar(aes(
+    x = fct_reorder(as.factor(bedrooms), desc(bedrooms))
+  ),
+  stat = "count",
+  fill = seattle
+  ) +
+  labs(
+    title = "Distribution of Bedroom Quantity of Houses in Seattle",
+    subtitle = "Year: 2014-2015",
+    x = "Number of Bedrooms",
+    y = "Count"
+  ) +
+  coord_flip() +
+  theme
+```
+
+## 8. Mean Number of Bedrooms
+```{r}
+cat("The mean number of bedrooms in seattle houses between 2014 to 2015 is",
+      mean(kc_housing$bedrooms))
+```
+
+## 9. Subsetting and selecting rows
+```{r}
+# Filter on bedrooms less than 5
+clean_kc_housing <- kc_housing %>%
+  filter(bedrooms < 5)
+# Check new data
+cat(
+  "After excluding houses with 5 or more bedrooms, there are",
+  nrow(clean_kc_housing), "observations left, which means",
+  str_c(format(nrow(clean_kc_housing) / nrow(kc_housing) * 100, digits = 2), "%"),
+  "houses in Seattle have less than 5 bedrooms between Year 2014 and 2015.",
+  "Houses with 5 or more bedrooms are not typical."
+)
+```
+
+## 10. Filter on multiple criteria
+```{r}
+# Filter on bedrooms less than 3 and living footage greater than 500
+clean_kc_housing_2 <- kc_housing %>%
+  filter(bedrooms < 3 & sqft_living > 500)
+# Check new data
+nrow(clean_kc_housing_2)
+# Filter on bedrooms greater than 3 or floors greater than 2
+clean_kc_housing_3 <- kc_housing %>%
+  filter(bedrooms > 3 | floors > 2)
+# Check new data
+nrow(clean_kc_housing_3)
+```
+
+## 11. Find null values for price_sold
+```{r}
+summary(is.na(kc_housing$sold_price))
+summary(kc_housing$sold_price == "")
+```
+
+__*Answer*__  
+
+- There is no null value for the sold price of houses in this data set.
+
+## 12. Group by and Apply on a Column
+```{r}
+kc_housing %>%
+  group_by(view) %>% # group by view score
+  summarise(mean_price = mean(sold_price), # calculate mean sold price
+            median_price = median(sold_price)) # calculate median sold price
+```
+
+__*Answer*__  
+
+- Unsurprisingly, houses with better views were sold with higher mean and median prices, i.e.e they are more expensive.
+
+## 13. Pairplot of Numeric Columns
+```{r, fig.height = 6, fig.width = 9}
+# Select informative numeric columns
+kc_housing_num <- kc_housing %>%
+  select(sold_price:sqft_lot, constr_quality, yr_built)
+# Plot
+my_facet <- function(data, mapping, ...) { 
+  ggplot(data, mapping) + 
+    geom_point(...,
+               color = seattle, alpha = 0.3, size = 0.1)
+}
+
+# Plot
+ggpairs(kc_housing_num,
+  lower = list(continuous = my_facet),
+  upper = list(continuous = my_facet),
+  diag = list(continuous = wrap("barDiag", bins = 30, 
+                                alpha = 0.5, fill = seattle))
+  ) +
+  theme_bw(base_size = 8) +
+  theme(axis.text = element_text(size = 6))
+```
+
+## 14. Correlation Heatmap
+```{r}
+# Calculate correlation
+corr_mat <- round(cor(kc_housing_num), 2)
+# Reshape correlation data
+melted_corr_mat <- melt(corr_mat)
+# Plot
+plt <- ggplot(melted_corr_mat) +
+  geom_tile(aes(Var1, Var2, fill = value)) +
+  scale_fill_distiller(
+    name = "Value",
+    palette = "RdPu",
+    direction = 1,
+    breaks = seq(0, 1, 0.2),
+    limits = c(0,1)
+  ) +
+  labs(title = "Correlation of House Index in Seattle") +
+  theme(
+    plot.title = element_text(size = 11, face = "bold", hjust = 0.5),
+    axis.title = element_blank(),
+    legend.title = element_text(size = 10),
+    legend.text = element_text(size = 8),
+    legend.key.width = unit(0.8, "cm"),
+    panel.background = element_blank()
+  )
+plt
+# ggplotly(plt)
+```
